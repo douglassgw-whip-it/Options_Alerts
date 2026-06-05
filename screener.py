@@ -10,9 +10,26 @@ SENDER_EMAIL = "douglassgw@gmail.com"
 RECIPIENT_EMAIL = "douglassgw@gmail.com"
 APP_PASSWORD = os.environ.get("EMAIL_PASS")
 
+# 🎯 Your Explicit Core Watchlist (Will ALWAYS show at the top of the email)
+CORE_WATCHLIST = [
+    "AMZN",
+    "GOOGL",
+    "AAPL",
+    "NVDA",
+    "TSLA",
+    "PLTR",
+    "MSFT",
+    "OKE",
+    "VICI",
+    "BA",
+    "UBER",
+    "RKLB",
+    "MRK",
+]
 
-def get_full_market_watchlist():
-    """Dynamically fetches reliable S&P 500, NASDAQ-100, and mid/small cap tickers."""
+
+def get_broad_market_tickers():
+    """Fetches broad market tickers from S&P 500, NASDAQ-100, and growth small/mid-caps."""
     tickers = set()
 
     # 1. Fetch S&P 500 from Wikipedia
@@ -21,7 +38,6 @@ def get_full_market_watchlist():
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
         )[0]
         tickers.update(sp500["Symbol"].tolist())
-        print(f"Loaded {len(sp500)} tickers from S&P 500.")
     except Exception as e:
         print(f"Error fetching S&P 500 list: {e}")
 
@@ -31,12 +47,10 @@ def get_full_market_watchlist():
             "https://en.wikipedia.org/wiki/Nasdaq-100#Components"
         )[4]
         tickers.update(nasdaq100["Ticker"].tolist())
-        print(f"Loaded components from NASDAQ-100.")
     except Exception as e:
         print(f"Error fetching NASDAQ-100 list: {e}")
 
-    # 3. Use a highly liquid, static list of top Mid/Small Cap growth stars to prevent timeouts
-    # This ensures a high-quality pool without the clutter of 2,000 dead/illiquid micro-caps
+    # 3. Liquid Growth Small/Mid-Caps
     mid_small_caps = [
         "CELH",
         "WING",
@@ -51,7 +65,6 @@ def get_full_market_watchlist():
         "SOFI",
         "AFRM",
         "U",
-        "PLTR",
         "NET",
         "SNOW",
         "IOT",
@@ -79,11 +92,49 @@ def get_full_market_watchlist():
     ]
     tickers.update(mid_small_caps)
 
-    # Clean ticker formatting for yfinance compatibility (e.g., BRK.B -> BRK-B)
+    # Clean formatting
     clean_tickers = [
         str(t).strip().replace(".", "-").replace("/", "-") for t in tickers if t
     ]
     return sorted(list(set(clean_tickers)))
+
+
+def calculate_indicators(df):
+    """Calculates 50MA, 200MA, RSI, and 20-day Trailing Highs."""
+    df["MA50"] = df["Close"].rolling(window=50).mean()
+    df["MA200"] = df["Close"].rolling(window=200).mean()
+
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -1 * delta.clip(upper=0)
+    ema_gain = gain.ewm(com=13, adjust=False).mean()
+    ema_loss = loss.ewm(com=13, adjust=False).mean()
+    rs = ema_gain / ema_loss.replace(0, 0.00001)
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    df["Recent_Peak"] = df["Close"].rolling(window=20).max()
+    return df
+
+
+def generate_signal(df):
+    """Evaluates trading rules based on moving averages, trailing stops, and RSI."""
+    latest = df.iloc[-1]
+    current_price = latest["Close"]
+    ma50 = latest["MA50"]
+    ma200 = latest["MA200"]
+    rsi = latest["RSI"]
+    recent_peak = latest["Recent_Peak"]
+
+    drop_from_peak = (recent_peak - current_price) / recent_peak
+
+    if drop_from_peak >= 0.10:
+        return "🔴 STOP-LOSS BREACHED (-10%)", "#D32F2F"
+    elif current_price > ma50 and ma50 > ma200 and rsi < 65:
+        return "🟢 BUY (Strong Uptrend)", "#2E7D32"
+    elif current_price < ma50 or rsi > 80:
+        return "🚨 TREND WEAKENING (Exit Setup)", "#E65100"
+    else:
+        return "⚪ HOLD", "#4A4A4A"
 
 
 def send_email(report_html):
@@ -92,7 +143,7 @@ def send_email(report_html):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "🚀 Broad Market Actionable Alerts"
+    msg["Subject"] = "🚀 Broad Market & Core Watchlist Alerts"
     msg["From"] = SENDER_EMAIL
     msg["To"] = RECIPIENT_EMAIL
 
@@ -104,32 +155,35 @@ def send_email(report_html):
             server.starttls()
             server.login(SENDER_EMAIL, APP_PASSWORD)
             server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
-        print("Broad Market email sent successfully!")
+        print("Hybrid market email sent successfully!")
     except Exception as e:
         print(f"Failed to send email: {e}")
 
 
 def run_screener():
-    watchlist = get_full_market_watchlist()
-    print(f"Requesting bulk historical data for {len(watchlist)} tickers...")
+    # Merge lists completely to download everything efficiently in one block
+    broad_market = get_broad_market_tickers()
+    master_download_list = sorted(list(set(CORE_WATCHLIST + broad_market)))
 
-    # 🔥 CRITICAL BULK DOWNLOAD: Downloads EVERYTHING concurrently in one shot
-    # This prevents Yahoo Finance blocks and executes in under 15 seconds
+    print(f"Downloading master market data pool ({len(master_download_list)} tickers)...")
     try:
         data = yf.download(
-            tickers=watchlist, period="1y", group_by="ticker", threads=True
+            tickers=master_download_list,
+            period="1y",
+            group_by="ticker",
+            threads=True,
         )
     except Exception as e:
         print(f"Bulk download failed: {e}")
         return
 
-    buy_rows = ""
-    stop_rows = ""
+    core_rows = ""
+    broad_buy_rows = ""
+    broad_stop_rows = ""
 
-    print("Analyzing indicators across the market data pool...")
-    for ticker in watchlist:
+    for ticker in master_download_list:
         try:
-            # Safely extract individual ticker slice from the bulk data
+            # Handle multi-index data slice correctly
             if ticker not in data.columns.levels[0]:
                 continue
             df = data[ticker].dropna(subset=["Close"])
@@ -137,64 +191,41 @@ def run_screener():
             if len(df) < 200:
                 continue
 
-            # 1. Technical calculations
             df = df.copy()
-            df["MA50"] = df["Close"].rolling(window=50).mean()
-            df["MA200"] = df["Close"].rolling(window=200).mean()
+            df = calculate_indicators(df)
+            signal_text, text_color = generate_signal(df)
 
-            delta = df["Close"].diff()
-            gain = delta.clip(lower=0)
-            loss = -1 * delta.clip(upper=0)
-            ema_gain = gain.ewm(com=13, adjust=False).mean()
-            ema_loss = loss.ewm(com=13, adjust=False).mean()
-            rs = ema_gain / ema_loss.replace(0, 0.00001)
-            df["RSI"] = 100 - (100 / (1 + rs))
-
-            df["Recent_Peak"] = df["Close"].rolling(window=20).max()
-
-            # 2. Extract latest metrics
-            latest = df.iloc[-1]
-            current_price = latest["Close"]
-            ma50 = latest["MA50"]
-            ma200 = latest["MA200"]
-            rsi = latest["RSI"]
-            recent_peak = latest["Recent_Peak"]
-
-            drop_from_peak = (recent_peak - current_price) / recent_peak
-
-            # 3. Strategy Evaluation
-            if drop_from_peak >= 0.10:
-                signal_text, text_color = (
-                    "🔴 STOP-LOSS BREACHED (-10%)",
-                    "#D32F2F",
-                )
-            elif current_price > ma50 and ma50 > ma200 and rsi < 65:
-                signal_text, text_color = "🟢 BUY (Strong Uptrend)", "#2E7D32"
-            else:
-                continue  # Silently drop neutral/hold/weak setups to prevent inbox clutter
+            last_price = df.iloc[-1]["Close"]
+            last_rsi = df.iloc[-1]["RSI"]
 
             row_html = f"""
             <tr>
                 <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">{ticker}</td>
-                <td style="padding: 10px; border: 1px solid #ddd;">${current_price:.2f}</td>
-                <td style="padding: 10px; border: 1px solid #ddd;">{rsi:.1f}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">${last_price:.2f}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{last_rsi:.1f}</td>
                 <td style="padding: 10px; border: 1px solid #ddd; color: {text_color}; font-weight: bold;">{signal_text}</td>
             </tr>
             """
 
-            if "BUY" in signal_text:
-                buy_rows += row_html
-            elif "STOP-LOSS" in signal_text:
-                stop_rows += row_html
+            # 1. Process Core Watchlist (Always display everything)
+            if ticker in CORE_WATCHLIST:
+                core_rows += row_html
+
+            # 2. Process Broad Market Pool (Only record active signals)
+            else:
+                if "BUY" in signal_text:
+                    broad_buy_rows += row_html
+                elif "STOP-LOSS" in signal_text:
+                    broad_stop_rows += row_html
 
         except Exception:
-            continue  # Avoid letting one weird stock break the whole run
+            continue
 
-    # Fallbacks if the market had a completely neutral day
-    if not buy_rows:
-        buy_rows = '<tr><td colspan="4" style="padding:10px; text-align:center; color:#777;">No new buy setups identified today.</td></tr>'
-    if not stop_rows:
-        stop_rows = '<tr><td colspan="4" style="padding:10px; text-align:center; color:#777;">No tracking positions triggered trailing stop-losses.</td></tr>'
+    # Fallbacks for broad market tables if no signals flash
+    if not broad_buy_rows:
+        broad_buy_rows = '<tr><td colspan="4" style="padding:10px; text-align:center; color:#777;">No new broad buy setups identified today.</td></tr>'
+    if not broad_stop_rows:
+        broad_stop_rows = '<tr><td colspan="4" style="padding:10px; text-align:center; color:#777;">No broad positions triggered trailing stops.</td></tr>'
 
     email_content = f"""
     <html>
@@ -208,15 +239,27 @@ def run_screener():
         </style>
     </head>
     <body>
-        <h2>🚀 Broad Market Actionable Scanner</h2>
-        <p>Scanning results compiled across S&P 500, NASDAQ-100, and Small/Mid Cap growth leaders:</p>
+        <h2>📊 Hybrid Market Portfolio Scanner</h2>
         
+        <h3>⭐ Core Watchlist Status</h3>
+        <p>Current snapshot of your primary target tickers:</p>
+        <table>
+            <thead>
+                <tr><th>Ticker</th><th>Price</th><th>RSI</th><th>Action Signal</th></tr>
+            </thead>
+            <tbody>{core_rows}</tbody>
+        </table>
+
+        <hr style="border: 0; border-top: 1px dashed #D1D5DB; max-width: 700px; margin: 30px 0;">
+        <h2>🔍 Broad Market Scanned Alerts</h2>
+        <p>Dynamic hits scanned across S&P 500, NASDAQ-100, and Growth Mid/Small Caps:</p>
+
         <h3>🟢 Fresh Buy Signals</h3>
         <table>
             <thead>
                 <tr><th>Ticker</th><th>Price</th><th>RSI</th><th>Action Signal</th></tr>
             </thead>
-            <tbody>{buy_rows}</tbody>
+            <tbody>{broad_buy_rows}</tbody>
         </table>
 
         <h3>🔴 Critical Stop-Loss Triggers</h3>
@@ -224,7 +267,7 @@ def run_screener():
             <thead>
                 <tr><th>Ticker</th><th>Price</th><th>RSI</th><th>Action Signal</th></tr>
             </thead>
-            <tbody>{stop_rows}</tbody>
+            <tbody>{broad_stop_rows}</tbody>
         </table>
         
         <br>
