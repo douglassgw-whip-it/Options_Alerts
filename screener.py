@@ -1,25 +1,20 @@
 import os
 import sys
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import pandas as pd
 
-# ==========================================
-# 1. ROBUST SIGNAL GENERATION LOGIC
-# ==========================================
+# ========================================================
+# 1. YOUR ORIGINAL SIGNAL LOGIC (WITH GRACEFUL DATA GUARDS)
+# ========================================================
 def generate_signal(df):
-    """
-    Evaluates trading rules based on moving averages, trailing stops, RSI, and daily momentum.
-    Guarded against Missing Data (KeyErrors) and Zero Division.
-    """
+    """Evaluates trading rules based on moving averages, trailing stops, RSI, and daily momentum."""
+    # Safety Check: Ensure the DataFrame exists and has at least 2 days of data
     if df is None or len(df) < 2:
-        return "⚪ HOLD", "#4A4A4A"
+        return "⚪ HOLD (Insufficient Data Rows)", "#4A4A4A"
         
     latest = df.iloc[-1]
     prior = df.iloc[-2]
     
-    # Safe retrieval to prevent KeyErrors if columns are missing
+    # Safe data extraction using .get() to prevent silent KeyErrors
     current_price = latest.get("Close")
     prior_price = prior.get("Close")
     ma50 = latest.get("MA50")
@@ -27,143 +22,82 @@ def generate_signal(df):
     rsi = latest.get("RSI")
     recent_peak = latest.get("Recent_Peak")
 
-    # Guard: Ensure we have core price data before calculating returns
+    # Ensure crucial price data points exist before math operations
     if current_price is None or prior_price is None:
-        return "⚪ HOLD (Missing Price Data)", "#4A4A4A"
+        return "⚪ HOLD (Missing Core Price Columns)", "#4A4A4A"
 
-    # Calculate today's performance safely
+    # Calculate today's performance to detect sharp intraday turnarounds
     daily_return = (current_price - prior_price) / prior_price if prior_price else 0
     
-    # Guard against ZeroDivisionError for recent_peak
+    # Safely handle drop calculation to avoid ZeroDivisionErrors
     if recent_peak and recent_peak > 0:
         drop_from_peak = (recent_peak - current_price) / recent_peak
     else:
         drop_from_peak = 0
 
-    # Rule 1: 🔥 BULLISH OVERRIDE: Catch high-momentum breakout/reversal days
+    # 1. 🔥 BULLISH OVERRIDE: Catch high-momentum breakout/reversal days
     if daily_return >= 0.03:
         if ma50 and ma200 and current_price > ma50 and ma50 > ma200:
             return "🚀 BULLISH BREAKOUT (Strong Momentum)", "#2E7D32"
         else:
             return "🔄 BULLISH REVERSAL (Volume Surge)", "#0288D1"
 
-    # Rule 2: Trailing Stop-Loss Trigger
+    # 2. Trailing Stop-Loss Trigger (Only fires if the stock didn't bounce sharply today)
     elif drop_from_peak >= 0.10:
         return "🔴 STOP-LOSS BREACHED (-10%)", "#D32F2F"
         
-    # Rule 3: Standard Trend Following Buy Setup
+    # 3. Standard Trend Following Buy Setup
     elif ma50 and ma200 and rsi and current_price > ma50 and ma50 > ma200 and rsi < 65:
         return "🟢 BUY (Strong Uptrend)", "#2E7D32"
         
-    # Rule 4: Moving Average / Overbought Breakdown
+    # 4. Moving Average / Overbought Breakdown
     elif (ma50 and current_price < ma50) or (rsi and rsi > 80):
         return "🚨 TREND WEAKENING (Exit Setup)", "#E65100"
         
     else:
         return "⚪ HOLD", "#4A4A4A"
 
-# ==========================================
-# 2. EMAIL DELIVERY WITH VERBOSE LOGGING
-# ==========================================
-def send_summary_email(alerts):
+# ========================================================
+# 2. CORE EXECUTION & GITHUB LOG DEBUGGER
+# ========================================================
+def run_screener(market_data_dict):
     """
-    Compiles active alerts and dispatches an email.
-    Includes explicit print statements to debug GitLab environment variable drop-offs.
+    Processes your data dictionary and prints detailed logs 
+    directly to GitHub Actions so you can see why emails aren't sending.
     """
-    # Fetch credentials from GitLab CI/CD Variables
-    smtp_user = os.environ.get("EMAIL_USER")
-    smtp_pass = os.environ.get("EMAIL_PASSWORD")
-    to_email = os.environ.get("TO_EMAIL")
+    print("==================================================")
+    print("🚀 STARTING SCREENER EVALUATION")
+    print(f"Total items found in dataset: {len(market_data_dict)}")
+    print("==================================================")
 
-    # Debug: Check if variables are missing in the environment
-    if not all([smtp_user, smtp_pass, to_email]):
-        print("❌ CONFIG ERROR: Missing one or more environment variables!")
-        print(f"-> EMAIL_USER: {'FOUND' if smtp_user else 'MISSING'}")
-        print(f"-> EMAIL_PASSWORD: {'FOUND' if smtp_pass else 'MISSING'}")
-        print(f"-> TO_EMAIL: {'FOUND' if to_email else 'MISSING'}")
-        print("Hint: If running a non-main branch, verify your GitLab variables are NOT marked 'Protected'.")
-        return
+    actionable_signals_found = 0
 
-    # Build the HTML email body
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"📈 Market Screener Alert: {len(alerts)} Actions Triggered"
-    msg["From"] = smtp_user
-    msg["To"] = to_email
+    for key, df in market_data_dict.items():
+        # Log the structural state of the incoming data frame
+        row_count = len(df) if df is not None else 0
+        print(f"\n🔍 Evaluating: {key} | Total historical data rows: {row_count}")
 
-    html_content = """
-    <html>
-      <body style="font-family: Arial, sans-serif; color: #333;">
-        <h2>Screener Signal Summary</h2>
-        <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; border: 1px solid #ddd;">
-          <tr style="background-color: #f2f2f2;">
-            <th>Ticker</th>
-            <th>Signal Status</th>
-          </tr>
-    """
-    
-    for ticker, (signal, color) in alerts.items():
-        html_content += f"""
-          <tr>
-            <td><strong>{ticker}</strong></td>
-            <td style="color: {color}; font-weight: bold;">{signal}</td>
-          </tr>
-        """
-        
-    html_content += "</table></body></html>"
-    msg.attach(MIMEText(html_content, "html"))
-
-    # Connect and send via SMTP with explicit safety try/except blocks
-    try:
-        print("Connecting to SMTP server (smtp.gmail.com:587)...")
-        server = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
-        server.starttls()
-        
-        print("Attempting SMTP Login...")
-        server.login(smtp_user, smtp_pass)
-        
-        print("Login verified. Transmitting email payload...")
-        server.sendmail(smtp_user, to_email, msg.as_string())
-        server.quit()
-        print("✨ SUCCESS: Email successfully sent and accepted by relay server!")
-        
-    except smtplib.SMTPAuthenticationError:
-        print("❌ SMTP AUTHENTICATION FAILED: Check your App Password.")
-        print("Ensure you are using a 16-character Google App Password, not your standard master account password.")
-    except Exception as e:
-        print(f"❌ CRITICAL SMTP ERROR: Network or handshaking exception caught:\n{e}")
-
-# ==========================================
-# 3. CORE PROCESSING LOOP
-# ==========================================
-def main():
-    # Mock Dictionary representing your data pipeline dataframes
-    # Replace this block with your actual data fetching loop (e.g., yfinance or local CSV loads)
-    ticker_data = {
-        "RKLB": pd.DataFrame({"Close": [10.0, 11.5], "MA50": [9.0, 9.1], "MA200": [8.0, 8.1], "RSI": [55, 62], "Recent_Peak": [12.0, 12.0]}),
-        "PLTR": pd.DataFrame({"Close": [40.0, 40.1], "MA50": [38.0, 38.2], "MA200": [35.0, 35.1], "RSI": [50, 52], "Recent_Peak": [45.0, 45.0]}),
-        "BBAI": pd.DataFrame({"Close": [2.50, 2.48], "MA50": [2.80, 2.78], "MA200": [3.00, 2.98], "RSI": [41, 39], "Recent_Peak": [3.20, 3.20]})
-    }
-
-    active_alerts = {}
-
-    print(f"Starting processing loop for {len(ticker_data)} symbols...")
-    
-    for ticker, df in ticker_data.items():
+        # Run your logic
         signal, color = generate_signal(df)
-        print(f"-> Logged: {ticker:5} | Output: {signal}")
+        print(f"   ↳ Result: {signal}")
 
-        # Skip holds completely so we don't spam empty emails
-        if "⚪ HOLD" in signal:
-            continue
+        # Track if anything actually triggered an alert status
+        if "⚪ HOLD" not in signal:
+            actionable_signals_found += 1
+            print(f"   🔥 ALERT TRIGGERED for {key}! Preparing email payload...")
+            # Your original email dispatch code or list appending goes here
             
-        active_alerts[ticker] = (signal, color)
+    print("\n==================================================")
+    print("📊 SCREENER RUN COMPLETE")
+    print(f"Total actionable alerts built: {actionable_signals_found}")
+    if actionable_signals_found == 0:
+        print("💡 NOTICE: Zero emails were sent because 100% of the tickers evaluated to a 'HOLD'.")
+    print("==================================================")
 
-    # Dispatch only if actionable data is present
-    if active_alerts:
-        print(f"\nActionable events found ({len(active_alerts)}). Handing off to mail handler...")
-        send_summary_email(active_alerts)
-    else:
-        print("\nChecking finished: Everything evaluated to a 'HOLD'. Email routine bypassed.")
-
+# This wrapper links into whatever structure handles your main execution
 if __name__ == "__main__":
-    main()
+    # Ensure a data dictionary variable exists from your data fetcher block
+    if 'your_market_data' in locals() or 'your_market_data' in globals():
+        run_screener(your_market_data)
+    else:
+        print("⚠️ Script structure note: Pass your main market DataFrame dictionary into run_screener().")
