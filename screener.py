@@ -1,5 +1,6 @@
 import os
 import smtplib
+import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -7,36 +8,47 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ==========================================
-# 1. DYNAMIC MULTI-INDEX UNIVERSE SCRAPER
+# 1. DYNAMIC MULTI-INDEX UNIVERSE SCRAPER (WITH USER-AGENT FIX)
 # ==========================================
 def fetch_broad_market_universe():
     print("Executing broad extraction of institutional indices...")
     tickers = []
     
+    # We must provide a browser-like User-Agent or Wikipedia will drop the connection with a 403 error
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+
     # Track 1: S&P 500
     try:
-        sp500_table = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            sp500_table = pd.read_html(response)
         sp500_list = sp500_table[0]['Symbol'].tolist()
         tickers.extend([t.replace('.', '-') for t in sp500_list])
+        print(f"✅ Successfully extracted S&P 500 roster.")
     except Exception as e:
-        print(f"⚠️ S&P 500 scrape bypassed: {e}")
+        print(f"⚠️ S&P 500 scrape bypassed (Check headers): {e}")
 
     # Track 2: NASDAQ-100
     try:
-        nasdaq_table = pd.read_html("https://en.wikipedia.org/wiki/Nasdaq-100")
+        url = "https://en.wikipedia.org/wiki/Nasdaq-100"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            nasdaq_table = pd.read_html(response)
         for table in nasdaq_table:
             if 'Ticker' in table.columns or 'Symbol' in table.columns:
                 col = 'Ticker' if 'Ticker' in table.columns else 'Symbol'
                 nasdaq_list = table[col].dropna().tolist()
                 tickers.extend([t.replace('.', '-') for t in nasdaq_list])
+                print(f"✅ Successfully extracted NASDAQ-100 roster.")
                 break
     except Exception as e:
-        print(f"⚠️ NASDAQ-100 scrape bypassed: {e}")
+        print(f"⚠️ NASDAQ-100 scrape bypassed (Check headers): {e}")
 
     # Manual Watchlist Fallbacks
     macro_anchors = ["QQQ", "IWM", "DIA", "RKLB", "PLTR", "BBAI", "VLN", "ACHR"]
     full_universe = list(set(macro_anchors + tickers))
-    print(f"📊 Total components found: {len(full_universe)}")
+    print(f"📊 Total components found inside routing matrix: {len(full_universe)}")
     return full_universe
 
 # ==========================================
@@ -92,24 +104,20 @@ def send_matrix_email(matrix_text):
 def main():
     print("🚀 BOOTING BROAD NETWORK INDEX EXTRACTION PROCESSING ENGINE")
     
+    spy_df = yf.download("SPY", period="1y", interval="1d", progress=False, multi_level_index=False)
+    spy_df.columns = [str(col).strip() for col in spy_df.columns]
+    spy_close = spy_df['Close'].dropna()
+    spy_returns = spy_close.pct_change().dropna()
+    spy_cum = (1 + spy_returns).prod() - 1
+    spy_vol_20d = spy_returns.tail(20).std() * np.sqrt(252)
+
     watchlist = fetch_broad_market_universe()
     if "SPY" not in watchlist:
         watchlist.append("SPY")
         
-    print("Downloading entire universe in ONE SINGLE combined batch request...")
-    # Using group_by="ticker" makes parsing massive multi-ticker data infinitely simpler and bulletproof
+    print("Downloading entire universe data payload...")
     all_data = yf.download(watchlist, period="1y", interval="1d", progress=False, group_by="ticker")
     
-    # Isolate SPY baseline reference
-    try:
-        spy_close = all_data["SPY"]["Close"].dropna()
-        spy_returns = spy_close.pct_change().dropna()
-        spy_cum = (1 + spy_returns).prod() - 1
-        spy_vol_20d = spy_returns.tail(20).std() * np.sqrt(252)
-    except Exception as e:
-        print(f"❌ Failed to parse SPY benchmark data: {e}")
-        return
-
     group_a_pool = []
     group_b_pool = []
 
@@ -118,7 +126,6 @@ def main():
         if ticker == "SPY":
             continue
         try:
-            # Grab ticker's slice directly from the massive local table
             if ticker not in all_data.columns.levels[0]:
                 continue
                 
@@ -131,12 +138,11 @@ def main():
             high_series = ticker_df['High']
             low_series = ticker_df['Low']
 
-            # 1. LIQUIDITY FILTER (Skip illiquid tickers)
+            # 1. LIQUIDITY FILTER
             avg_volume_10d = volume_series.tail(10).mean()
             if avg_volume_10d < 1000000:
                 continue
 
-            # Align vectors with SPY index
             combined_stock_spy = pd.concat([close_series.rename('Stock'), spy_close.rename('SPY')], axis=1).dropna()
             stock_returns = combined_stock_spy['Stock'].pct_change().dropna()
             
