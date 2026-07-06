@@ -6,44 +6,35 @@ import pandas as pd
 import yfinance as yf
 
 # ==========================================
-# 1. INDICATOR MATH & DATA PREP
+# 1. DATA PREP
 # ==========================================
 def prep_data(ticker):
     """Fetches stock data and calculates MA50, MA200, RSI, and Recent Peak."""
     try:
-        # Enforce multi_level_index=False to prevent recent yfinance structural breakages
         df = yf.download(ticker, period="1y", interval="1d", progress=False, multi_level_index=False)
-        
         if df.empty or len(df) < 200:
             return None
 
-        # Clean column names to ensure pure string indexing
         df.columns = [str(col).strip() for col in df.columns]
 
-        # Calculate Moving Averages
         df['MA50'] = df['Close'].rolling(window=50).mean()
         df['MA200'] = df['Close'].rolling(window=200).mean()
-        
-        # Calculate Recent Peak (rolling 52-week high for trailing stop)
         df['Recent_Peak'] = df['Close'].rolling(window=252, min_periods=1).max()
 
-        # Calculate 14-day RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
 
-        # Drop NaN rows so our latest row has clean indicator data
         clean_df = df.dropna()
         return clean_df if not clean_df.empty else None
-        
     except Exception as e:
-        print(f"⚠️ Error fetching data for {ticker}: {e}")
+        print(f"⚠️ Data extraction failed for {ticker}: {e}")
         return None
 
 # ==========================================
-# 2. YOUR SIGNAL GENERATION LOGIC
+# 2. SIGNAL LOGIC
 # ==========================================
 def generate_signal(df):
     """Evaluates trading rules based on moving averages, trailing stops, RSI, and daily momentum."""
@@ -63,30 +54,22 @@ def generate_signal(df):
     daily_return = (current_price - prior_price) / prior_price if prior_price else 0
     drop_from_peak = (recent_peak - current_price) / recent_peak if recent_peak else 0
 
-    # 1. 🔥 BULLISH OVERRIDE
     if daily_return >= 0.03:
         if current_price > ma50 and ma50 > ma200:
             return "🚀 BULLISH BREAKOUT (Strong Momentum)", "#2E7D32"
         else:
             return "🔄 BULLISH REVERSAL (Volume Surge)", "#0288D1"
-
-    # 2. Trailing Stop-Loss Trigger
     elif drop_from_peak >= 0.10:
         return "🔴 STOP-LOSS BREACHED (-10%)", "#D32F2F"
-        
-    # 3. Standard Trend Following Buy Setup
     elif current_price > ma50 and ma50 > ma200 and rsi < 65:
         return "🟢 BUY (Strong Uptrend)", "#2E7D32"
-        
-    # 4. Moving Average / Overbought Breakdown
     elif current_price < ma50 or rsi > 80:
         return "🚨 TREND WEAKENING (Exit Setup)", "#E65100"
-        
     else:
         return "⚪ HOLD", "#4A4A4A"
 
 # ==========================================
-# 3. EMAIL DISPATCH
+# 3. EMAIL DISPATCH (PORT 465 DIRECT SSL ENCRYPTION)
 # ==========================================
 def send_summary_email(alerts):
     smtp_user = os.environ.get("EMAIL_USER")
@@ -94,10 +77,8 @@ def send_summary_email(alerts):
     to_email = os.environ.get("TO_EMAIL")
 
     if not all([smtp_user, smtp_pass, to_email]):
-        print("❌ CONFIG ERROR: Missing GitHub Secrets (EMAIL_USER, EMAIL_PASSWORD, or TO_EMAIL)")
-        return
+        raise ValueError("❌ CRITICAL CONFIG: GitHub Environment secrets returned empty strings.")
 
-    # Use "mixed" or standard fallback configurations to prevent strict institutional drops
     msg = MIMEMultipart("mixed")
     msg["Subject"] = f"📈 Market Screener Alert: {len(alerts)} Actions Triggered"
     msg["From"] = smtp_user
@@ -120,18 +101,20 @@ def send_summary_email(alerts):
     html_content += "</table></body></html>"
     msg.attach(MIMEText(html_content, "html"))
 
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
-        server.sendmail(smtp_user, to_email, msg.as_string())
-        server.quit()
-        print("✨ SUCCESS: Email sent successfully!")
-    except Exception as e:
-        print(f"❌ SMTP ERROR: {e}")
+    # Direct port 465 secure socket connection bypasses cloud firewalls
+    print("Initiating Direct implicit SSL tunnel via smtp.gmail.com:465...")
+    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15)
+    
+    print("Authenticating credentials...")
+    server.login(smtp_user, smtp_pass)
+    
+    print("Transmitting payload...")
+    server.sendmail(smtp_user, to_email, msg.as_string())
+    server.quit()
+    print("✨ SUCCESS: Pipeline complete! Handed down directly to Gmail.")
 
 # ==========================================
-# 4. MAIN EXECUTION LOOP
+# 4. MAIN RUNNER
 # ==========================================
 def main():
     print("==================================================")
@@ -158,10 +141,9 @@ def main():
     print("\n==================================================")
     print(f"📊 SCREENER RUN COMPLETE. Actionable alerts: {len(active_alerts)}")
     
-    # Send email unconditionally for GitHub environment reporting
     if not active_alerts:
-        print("💡 NOTICE: No active alerts triggered. Sending clean status summary...")
-        active_alerts["All Watchlist Status"] = ("⚪ All Tickers Evaluating as HOLD", "#4A4A4A")
+        print("💡 NOTICE: Injecting baseline run confirmation row...")
+        active_alerts["Screener Verification"] = ("⚪ All watched elements evaluating as HOLD", "#4A4A4A")
 
     print("Initiating email dispatch...")
     send_summary_email(active_alerts)
