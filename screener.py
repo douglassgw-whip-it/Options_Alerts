@@ -44,7 +44,7 @@ def fetch_broad_market_universe():
     return full_universe
 
 # ==========================================
-# 2. REPORT FORMATTING PIPELINE (CLEANED UP & ALIGNED)
+# 2. REPORT FORMATTING PIPELINE
 # ==========================================
 def build_markdown_matrix(group_a, group_b):
     output = "## SYSTEMATIC BROAD INDEX SCORING MATRIX\n"
@@ -165,11 +165,15 @@ def main():
             stock_vol_20d = stock_returns.tail(20).std() * np.sqrt(252)
             relative_vol = stock_vol_20d / spy_vol_20d if spy_vol_20d > 0 else 1.0
 
-            # ⚙️ UPDATED: Smoothed 60-day window baseline to normalize IV Rank skews
-            rolling_60d_vol = stock_returns.rolling(60).std() * np.sqrt(252)
-            hv_min, hv_max = rolling_60d_vol.min(), rolling_60d_vol.max()
-            hv_rank = ((stock_vol_20d - hv_min) / (hv_max - hv_min)) if (hv_max - hv_min) > 0 else 0.5
-            hv_rank = np.clip(hv_rank, 0.0, 1.0) # Keeps values perfectly bounded between 0% and 100%
+            # ⚙️ FIXED VOLATILITY ENGINE: Applies dynamic 1-Year percentile ranking
+            historical_20d_vols = stock_returns.rolling(20).std() * np.sqrt(252)
+            current_20d_vol = historical_20d_vols.iloc[-1]
+
+            if len(historical_20d_vols.dropna()) > 0 and not np.isnan(current_20d_vol):
+                valid_vols = historical_20d_vols.dropna()
+                hv_rank = (valid_vols < current_20d_vol).sum() / len(valid_vols)
+            else:
+                hv_rank = 0.5
 
             delta = combined_stock_spy['Stock'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
