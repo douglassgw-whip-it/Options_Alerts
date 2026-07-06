@@ -11,14 +11,14 @@ import yfinance as yf
 def prep_data(ticker):
     """Fetches stock data and calculates MA50, MA200, RSI, and Recent Peak."""
     try:
-        # Fetch 1 year of daily data
-        df = yf.download(ticker, period="1y", interval="1d", progress=False)
+        # Enforce multi_level_index=False to prevent recent yfinance structural breakages
+        df = yf.download(ticker, period="1y", interval="1d", progress=False, multi_level_index=False)
+        
         if df.empty or len(df) < 200:
             return None
-            
-        # Flatten multi-index columns if yfinance returns them
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+
+        # Clean column names to ensure pure string indexing
+        df.columns = [str(col).strip() for col in df.columns]
 
         # Calculate Moving Averages
         df['MA50'] = df['Close'].rolling(window=50).mean()
@@ -35,7 +35,9 @@ def prep_data(ticker):
         df['RSI'] = 100 - (100 / (1 + rs))
 
         # Drop NaN rows so our latest row has clean indicator data
-        return df.dropna()
+        clean_df = df.dropna()
+        return clean_df if not clean_df.empty else None
+        
     except Exception as e:
         print(f"⚠️ Error fetching data for {ticker}: {e}")
         return None
@@ -84,7 +86,7 @@ def generate_signal(df):
         return "⚪ HOLD", "#4A4A4A"
 
 # ==========================================
-# 3. EMAIL DISPATCH (WITH REPLY-TO FIX)
+# 3. EMAIL DISPATCH
 # ==========================================
 def send_summary_email(alerts):
     smtp_user = os.environ.get("EMAIL_USER")
@@ -95,11 +97,12 @@ def send_summary_email(alerts):
         print("❌ CONFIG ERROR: Missing GitHub Secrets (EMAIL_USER, EMAIL_PASSWORD, or TO_EMAIL)")
         return
 
-    msg = MIMEMultipart("alternative")
+    # Use "mixed" or standard fallback configurations to prevent strict institutional drops
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = f"📈 Market Screener Alert: {len(alerts)} Actions Triggered"
     msg["From"] = smtp_user
     msg["To"] = to_email
-    msg["Reply-To"] = smtp_user  # Prevents Gmail from dropping it as spoofed spam
+    msg["Reply-To"] = smtp_user
 
     html_content = """
     <html>
@@ -135,7 +138,6 @@ def main():
     print("🚀 STARTING SCREENER EVALUATION")
     print("==================================================")
     
-    # Watchlist updated with your specific targets
     watchlist = ["RKLB", "PLTR", "BBAI", "VLN", "INFQ", "ACHR", "SPY"]
     active_alerts = {}
 
@@ -156,11 +158,13 @@ def main():
     print("\n==================================================")
     print(f"📊 SCREENER RUN COMPLETE. Actionable alerts: {len(active_alerts)}")
     
-    if active_alerts:
-        print("Initiating email dispatch...")
-        send_summary_email(active_alerts)
-    else:
-        print("💡 NOTICE: Zero emails sent because all tickers evaluated to 'HOLD'.")
+    # Send email unconditionally for GitHub environment reporting
+    if not active_alerts:
+        print("💡 NOTICE: No active alerts triggered. Sending clean status summary...")
+        active_alerts["All Watchlist Status"] = ("⚪ All Tickers Evaluating as HOLD", "#4A4A4A")
+
+    print("Initiating email dispatch...")
+    send_summary_email(active_alerts)
     print("==================================================")
 
 if __name__ == "__main__":
