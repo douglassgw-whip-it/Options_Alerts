@@ -1,6 +1,5 @@
 import os
 import smtplib
-import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -8,47 +7,43 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ==========================================
-# 1. DYNAMIC MULTI-INDEX UNIVERSE SCRAPER (WITH USER-AGENT FIX)
+# 1. BULLETPROOF MULTI-INDEX DATA MIRROR SCRAPER
 # ==========================================
 def fetch_broad_market_universe():
     print("Executing broad extraction of institutional indices...")
     tickers = []
     
-    # We must provide a browser-like User-Agent or Wikipedia will drop the connection with a 403 error
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-
-    # Track 1: S&P 500
+    # Track 1: S&P 500 via GitHub Raw Data-Hub Mirror (100% stable inside GitHub Actions)
     try:
-        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            sp500_table = pd.read_html(response)
-        sp500_list = sp500_table[0]['Symbol'].tolist()
-        tickers.extend([t.replace('.', '-') for t in sp500_list])
-        print(f"✅ Successfully extracted S&P 500 roster.")
+        sp500_df = pd.read_csv("https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv")
+        sp500_list = sp500_df['Symbol'].tolist()
+        tickers.extend([str(t).replace('.', '-') for t in sp500_list])
+        print(f"✅ Successfully extracted {len(sp500_list)} S&P 500 components from GitHub repository mirror.")
     except Exception as e:
-        print(f"⚠️ S&P 500 scrape bypassed (Check headers): {e}")
+        print(f"⚠️ S&P 500 primary mirror failed: {e}. Trying secondary backup...")
+        try:
+            sp500_df = pd.read_csv("https://raw.githubusercontent.com/Ate329/top-us-stock-tickers/main/tickers/sp500.csv")
+            col = 'symbol' if 'symbol' in sp500_df.columns else 'Symbol'
+            sp500_list = sp500_df[col].tolist()
+            tickers.extend([str(t).replace('.', '-') for t in sp500_list])
+            print(f"✅ Successfully extracted {len(sp500_list)} S&P 500 components from secondary mirror.")
+        except Exception as e2:
+            print(f"❌ All S&P 500 mirrors bypassed: {e2}")
 
-    # Track 2: NASDAQ-100
+    # Track 2: NASDAQ-100 via Top-Tickers GitHub Mirror
     try:
-        url = "https://en.wikipedia.org/wiki/Nasdaq-100"
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            nasdaq_table = pd.read_html(response)
-        for table in nasdaq_table:
-            if 'Ticker' in table.columns or 'Symbol' in table.columns:
-                col = 'Ticker' if 'Ticker' in table.columns else 'Symbol'
-                nasdaq_list = table[col].dropna().tolist()
-                tickers.extend([t.replace('.', '-') for t in nasdaq_list])
-                print(f"✅ Successfully extracted NASDAQ-100 roster.")
-                break
+        nasdaq_df = pd.read_csv("https://raw.githubusercontent.com/Ate329/top-us-stock-tickers/main/tickers/top_100.csv")
+        col = 'symbol' if 'symbol' in nasdaq_df.columns else 'Symbol'
+        nasdaq_list = nasdaq_df[col].tolist()
+        tickers.extend([str(t).replace('.', '-') for t in nasdaq_list])
+        print(f"✅ Successfully extracted {len(nasdaq_list)} NASDAQ-100 components from GitHub mirror.")
     except Exception as e:
-        print(f"⚠️ NASDAQ-100 scrape bypassed (Check headers): {e}")
+        print(f"❌ NASDAQ-100 mirror bypassed: {e}")
 
     # Manual Watchlist Fallbacks
     macro_anchors = ["QQQ", "IWM", "DIA", "RKLB", "PLTR", "BBAI", "VLN", "ACHR"]
     full_universe = list(set(macro_anchors + tickers))
-    print(f"📊 Total components found inside routing matrix: {len(full_universe)}")
+    print(f"📊 Total dynamic components integrated into the pipeline: {len(full_universe)}")
     return full_universe
 
 # ==========================================
@@ -104,6 +99,7 @@ def send_matrix_email(matrix_text):
 def main():
     print("🚀 BOOTING BROAD NETWORK INDEX EXTRACTION PROCESSING ENGINE")
     
+    # Establish baseline benchmark index metrics
     spy_df = yf.download("SPY", period="1y", interval="1d", progress=False, multi_level_index=False)
     spy_df.columns = [str(col).strip() for col in spy_df.columns]
     spy_close = spy_df['Close'].dropna()
@@ -115,8 +111,26 @@ def main():
     if "SPY" not in watchlist:
         watchlist.append("SPY")
         
-    print("Downloading entire universe data payload...")
-    all_data = yf.download(watchlist, period="1y", interval="1d", progress=False, group_by="ticker")
+    # Split the massive universe into batches of 100 tickers to safely bypass Yahoo limits
+    chunk_size = 100
+    all_data_chunks = []
+    
+    print(f"Downloading data footprints in controlled chunks of {chunk_size}...")
+    for i in range(0, len(watchlist), chunk_size):
+        chunk = watchlist[i:i + chunk_size]
+        try:
+            chunk_data = yf.download(chunk, period="1y", interval="1d", progress=False, group_by="ticker")
+            if not chunk_data.empty:
+                all_data_chunks.append(chunk_data)
+        except Exception as e:
+            print(f"⚠️ Batch block processing skipped: {e}")
+            
+    if not all_data_chunks:
+        print("❌ CRITICAL ERROR: Could not collect any market dataset entries.")
+        return
+        
+    # Merge all chunked frames horizontally across columns
+    all_data = pd.concat(all_data_chunks, axis=1)
     
     group_a_pool = []
     group_b_pool = []
@@ -138,7 +152,7 @@ def main():
             high_series = ticker_df['High']
             low_series = ticker_df['Low']
 
-            # 1. LIQUIDITY FILTER
+            # 1. LIQUIDITY FILTER (Ensures standard institutional options volume)
             avg_volume_10d = volume_series.tail(10).mean()
             if avg_volume_10d < 1000000:
                 continue
