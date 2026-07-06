@@ -153,7 +153,7 @@ def build_markdown_matrix(group_a, group_b):
 def send_matrix_email(matrix_text):
     smtp_user = "douglassgw@gmail.com"     # <-- Change to your sender address
     to_email = "douglassgw@gmail.com"   # <-- Change to your receiver address
-    smtp_pass = os.environ.get("EMAIL_PASSWORD"
+    smtp_pass = os.environ.get("EMAIL_PASSWORD")
 
     if not smtp_pass:
         raise ValueError("❌ CRITICAL CONFIG: EMAIL_PASSWORD environment variable is missing.")
