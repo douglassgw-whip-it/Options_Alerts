@@ -215,7 +215,7 @@ def main():
                 "ActualIV": f"{actual_iv * 100:.1f}%",
                 "TargetStrike": f"${curr_p + atr_14:,.2f}",
                 "Score": f"{score_a} / 3",
-                "RawIVRank": iv_rank_proxy
+                "RawIVRank": iv_rank_proxy,
             }))
             
         else:
@@ -227,7 +227,7 @@ def main():
                 "IVRank": f"{iv_rank_proxy * 100:.0f}%", 
                 "StrikeFloor": f"${curr_p - (2 * atr_14):,.2f}", 
                 "Score": f"{score_b} / 3", 
-                "RawIVRank": iv_rank_proxy
+                "RawIVRank": iv_rank_proxy,
                 "ActualIV": f"{actual_iv * 100:.1f}%",
             }))
 
