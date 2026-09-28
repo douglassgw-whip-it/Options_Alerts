@@ -110,103 +110,104 @@ def main():
 
     group_a_pool, group_b_pool, group_c_pool = [], [], []
 
-        for ticker in watchlist:
+    for ticker in watchlist:
         
-            if ticker == "SPY": 
-                continue
-            try:
-                df = universe_data[ticker].copy()
+        if ticker == "SPY": 
+            continue
+        try:
+            df = universe_data[ticker].copy()
         
-            except Exception:
-                continue
+        except Exception:
+            continue
             
-            # --- ROBUST PRICE & ATR CLEANUP PATCH ---
-            df['Price_Clean'] = df['Close'].fillna(df['Adj Close']).ffill()
-            df = df.dropna(subset=['Price_Clean', 'High', 'Low', 'Volume'])
-            if len(df) < 60:
-                continue
+        # --- ROBUST PRICE & ATR CLEANUP PATCH ---
+        df['Price_Clean'] = df['Close'].fillna(df['Adj Close']).ffill()
+        df = df.dropna(subset=['Price_Clean', 'High', 'Low', 'Volume'])
+        if len(df) < 60:
+            continue
 
-            close = df['Price_Clean']
-            vol = df['Volume']
-            high = df['High']
-            low = df['Low']
+        close = df['Price_Clean']
+        vol = df['Volume']
+        high = df['High']
+        low = df['Low']
 
-            if vol.tail(20).mean() < 2500000: 
-                continue
+        if vol.tail(20).mean() < 2500000: 
+            continue
             
-            curr_p = float(close.iloc[-1])
-            if np.isnan(curr_p) or curr_p <= 0:
-                continue
+        curr_p = float(close.iloc[-1])
+        if np.isnan(curr_p) or curr_p <= 0:
+            continue
 
-            # --- CALCULATE INDICATORS ---
-            delta = close.diff()
-            gain = delta.clip(lower=0).rolling(14).mean()
-            loss = (-delta.clip(upper=0)).rolling(14).mean()
-            rs = gain / loss.replace(0, np.nan)
-            rsi = 100 - (100 / (1 + rs))
-            curr_rsi = float(rsi.iloc[-1]) if not np.isnan(rsi.iloc[-1]) else 50.0
+        # --- CALCULATE INDICATORS ---
+        delta = close.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rs = gain / loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        curr_rsi = float(rsi.iloc[-1]) if not np.isnan(rsi.iloc[-1]) else 50.0
 
-            # --- ATR CALCULATION PATCH ---
-            tr1 = high - low
-            tr2 = (high - close.shift()).abs()
-            tr3 = (low - close.shift()).abs()
-            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            atr_series = tr.rolling(14).mean().dropna()
+        # --- ATR CALCULATION PATCH ---
+        tr1 = high - low
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr_series = tr.rolling(14).mean().dropna()
             
-            if atr_series.empty or np.isnan(atr_series.iloc[-1]):
-                continue
+        if atr_series.empty or np.isnan(atr_series.iloc[-1]):
+            continue
             
-            atr_14 = float(atr_series.iloc[-1])
+        atr_14 = float(atr_series.iloc[-1])
 
-            # --- GROUP C: BREAKOUT LOGIC ---
-            sma_50 = close.rolling(50).mean().iloc[-1]
-            high_20d = high.rolling(20).max().shift(1).iloc[-1]
-            vol_avg_20 = vol.rolling(20).mean().iloc[-1]
-            std_20 = close.rolling(20).std()
-            bandwidth = (std_20 * 2) / close.rolling(20).mean()
-            is_tight = bandwidth.iloc[-1] < bandwidth.rolling(20).mean().iloc[-1]
-            rel_strength = (curr_p / close.iloc[-21]) - 1
+        # --- GROUP C: BREAKOUT LOGIC ---
+        sma_50 = close.rolling(50).mean().iloc[-1]
+        high_20d = high.rolling(20).max().shift(1).iloc[-1]
+        vol_avg_20 = vol.rolling(20).mean().iloc[-1]
+        std_20 = close.rolling(20).std()
+        bandwidth = (std_20 * 2) / close.rolling(20).mean()
+        is_tight = bandwidth.iloc[-1] < bandwidth.rolling(20).mean().iloc[-1]
+        rel_strength = (curr_p / close.iloc[-21]) - 1
 
-            if curr_p > high_20d and vol.iloc[-1] >= (1.5 * vol_avg_20) and 50 <= curr_rsi <= 72 and curr_p > sma_50 and is_tight and rel_strength > spy_20d_ret:
-                group_c_pool.append((ticker, {
-                    "Price": f"${curr_p:,.2f}", 
-                    "RSI": int(curr_rsi), 
-                    "VolumeRel": f"{vol.iloc[-1]/vol_avg_20:.1f}x", 
-                    "RelStrength": f"{rel_strength:.1%}"
-                }))
+        if curr_p > high_20d and vol.iloc[-1] >= (1.5 * vol_avg_20) and 50 <= curr_rsi <= 72 and curr_p > sma_50 and is_tight and rel_strength > spy_20d_ret:
+            group_c_pool.append((ticker, {
+                "Price": f"${curr_p:,.2f}", 
+                "RSI": int(curr_rsi), 
+                "VolumeRel": f"{vol.iloc[-1]/vol_avg_20:.1f}x", 
+                "RelStrength": f"{rel_strength:.1%}"
+            }))
 
-            # --- GROUP A/B: SCORING LOGIC ---
-            alpha = ((1 + close.pct_change().dropna()).prod() - 1) - spy_cum
-            log_ret = np.log(close / close.shift(1)).dropna()
-            rolling_std = log_ret.rolling(30).std().dropna()
+        # --- GROUP A/B: SCORING LOGIC ---
+        alpha = ((1 + close.pct_change().dropna()).prod() - 1) - spy_cum
+        log_ret = np.log(close / close.shift(1)).dropna()
+        rolling_std = log_ret.rolling(30).std().dropna()
             
-            if len(rolling_std) == 0:
-                continue
+        if len(rolling_std) == 0:
+            continue
                 
-            iv_rank_proxy = (rolling_std * np.sqrt(252) < (rolling_std.iloc[-1] * np.sqrt(252))).sum() / len(rolling_std)
+        iv_rank_proxy = (rolling_std * np.sqrt(252) < (rolling_std.iloc[-1] * np.sqrt(252))).sum() / len(rolling_std)
 
-            if curr_rsi >= 50:
-                score_a = (1 if 55 < curr_rsi < 70 else 0) + (1 if alpha > 0.05 else 0) + (1 if iv_rank_proxy < 0.45 else 0)
-                group_a_pool.append((ticker, {
-                    "Price": f"${curr_p:,.2f}", 
-                    "Alpha": alpha, 
-                    "RSI": int(curr_rsi), 
-                    "IVRank": f"{iv_rank_proxy * 100:.0f}%", 
-                    "TargetStrike": f"${curr_p + atr_14:,.2f}", 
-                    "Score": f"{score_a} / 3", 
-                    "RawIVRank": iv_rank_proxy
-                }))
-            else:
-                score_b = (1 if curr_rsi < 38 else 0) + (1 if iv_rank_proxy > 0.65 else 0) + (1 if alpha > -0.15 else 0)
-                group_b_pool.append((ticker, {
-                    "Price": f"${curr_p:,.2f}", 
-                    "Alpha": alpha, 
-                    "RSI": int(curr_rsi), 
-                    "IVRank": f"{iv_rank_proxy * 100:.0f}%", 
-                    "StrikeFloor": f"${curr_p - (2 * atr_14):,.2f}", 
-                    "Score": f"{score_b} / 3", 
-                    "RawIVRank": iv_rank_proxy
-                }))
+        if curr_rsi >= 50:
+            score_a = (1 if 55 < curr_rsi < 70 else 0) + (1 if alpha > 0.05 else 0) + (1 if iv_rank_proxy < 0.45 else 0)
+            group_a_pool.append((ticker, {
+                "Price": f"${curr_p:,.2f}", 
+                "Alpha": alpha, 
+                "RSI": int(curr_rsi), 
+                "IVRank": f"{iv_rank_proxy * 100:.0f}%", 
+                "TargetStrike": f"${curr_p + atr_14:,.2f}", 
+                "Score": f"{score_a} / 3", 
+                "RawIVRank": iv_rank_proxy
+            }))
+            
+        else:
+            score_b = (1 if curr_rsi < 38 else 0) + (1 if iv_rank_proxy > 0.65 else 0) + (1 if alpha > -0.15 else 0)
+            group_b_pool.append((ticker, {
+                "Price": f"${curr_p:,.2f}", 
+                "Alpha": alpha, 
+                "RSI": int(curr_rsi), 
+                "IVRank": f"{iv_rank_proxy * 100:.0f}%", 
+                "StrikeFloor": f"${curr_p - (2 * atr_14):,.2f}", 
+                "Score": f"{score_b} / 3", 
+                "RawIVRank": iv_rank_proxy
+            }))
 
     group_a_pool.sort(key=lambda x: x[1]["Alpha"], reverse=True)
     group_b_pool.sort(key=lambda x: x[1]["RawIVRank"], reverse=True)
