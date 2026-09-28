@@ -96,19 +96,19 @@ def main():
     spy_df = yf.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=False)
        
     if isinstance(spy_df.columns, pd.MultiIndex): 
-            spy_df.columns = spy_df.columns.get_level_values(0)
+        spy_df.columns = spy_df.columns.get_level_values(0)
     
-        # Clean SPY reference series
-        spy_df['Price_Clean'] = spy_df['Close'].fillna(spy_df['Adj Close']).ffill()
-        spy_close = spy_df['Price_Clean'].dropna()
-        spy_cum = (1 + spy_close.pct_change().dropna()).prod() - 1
-        spy_20d_ret = (spy_close.iloc[-1] / spy_close.iloc[-21]) - 1
+    # Clean SPY reference series
+    spy_df['Price_Clean'] = spy_df['Close'].fillna(spy_df['Adj Close']).ffill()
+    spy_close = spy_df['Price_Clean'].dropna()
+    spy_cum = (1 + spy_close.pct_change().dropna()).prod() - 1
+    spy_20d_ret = (spy_close.iloc[-1] / spy_close.iloc[-21]) - 1
 
-        watchlist = fetch_options_universe()
+    watchlist = fetch_options_universe()
 
-        universe_data = download_universe_data(watchlist)
+    universe_data = download_universe_data(watchlist)
 
-        group_a_pool, group_b_pool, group_c_pool = [], [], []
+    group_a_pool, group_b_pool, group_c_pool = [], [], []
 
         for ticker in watchlist:
         
