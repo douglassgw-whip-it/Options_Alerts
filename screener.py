@@ -43,18 +43,18 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output += "\n" + "---" * 20 + "\n\n"
     
     output += "### 📈 GROUP A: DELTA MOMENTUM BREAKOUTS\n"
-    output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Target Strike (+1 ATR) | Score |\n"
+    output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Target Strike (+1 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_a:
-        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['TargetStrike']:<22} | {m['Score']:<11} |\n"
+        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['TargetStrike']:<22\]:<22} | {m['Score'\]:<11} |\n"
         
     output += "\n" + "---" * 20 + "\n\n"
     
     output += "### 💵 GROUP B: STRUCTURAL PULLBACKS\n"
-    output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Margin Floor (-2 ATR) | Score |\n"
+    output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Margin Floor (-2 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_b:
-        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['StrikeFloor']:<31} | {m['Score']:<11} |\n"
+        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['StrikeFloor']:<31}]:<31} | {m['Score'\]:<11} |\n"
 
     return output
 
@@ -208,12 +208,13 @@ def main():
         if curr_rsi >= 50:
             score_a = (1 if 55 < curr_rsi < 70 else 0) + (1 if alpha > 0.05 else 0) + (1 if iv_rank_proxy < 0.45 else 0)
             group_a_pool.append((ticker, {
-                "Price": f"${curr_p:,.2f}", 
-                "Alpha": alpha, 
-                "RSI": int(curr_rsi), 
-                "IVRank": f"{iv_rank_proxy * 100:.0f}%", 
-                "TargetStrike": f"${curr_p + atr_14:,.2f}", 
-                "Score": f"{score_a} / 3", 
+                "Price": f"${curr_p:,.2f}",
+                "Alpha": alpha,
+                "RSI": int(curr_rsi),
+                "IVRank": f"{iv_rank_proxy * 100:.0f}%",
+                "ActualIV": f"{actual_iv * 100:.1f}%",
+                "TargetStrike": f"${curr_p + atr_14:,.2f}",
+                "Score": f"{score_a} / 3",
                 "RawIVRank": iv_rank_proxy
             }))
             
@@ -227,6 +228,7 @@ def main():
                 "StrikeFloor": f"${curr_p - (2 * atr_14):,.2f}", 
                 "Score": f"{score_b} / 3", 
                 "RawIVRank": iv_rank_proxy
+                "ActualIV": f"{actual_iv * 100:.1f}%",
             }))
 
     group_a_pool.sort(key=lambda x: x[1]["Alpha"], reverse=True)
