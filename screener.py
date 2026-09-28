@@ -207,9 +207,6 @@ def download_universe_data(tickers):
                     "Score": f"{score_b} / 3", 
                     "RawIVRank": iv_rank_proxy
                 }))
-        except Exception as e:
-            print(f"{ticker} failed: {e}")
-            continue
 
     group_a_pool.sort(key=lambda x: x[1]["Alpha"], reverse=True)
     group_b_pool.sort(key=lambda x: x[1]["RawIVRank"], reverse=True)
