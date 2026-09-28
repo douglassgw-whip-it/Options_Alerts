@@ -92,10 +92,10 @@ def download_universe_data(tickers):
         progress=False
     )
     
-    def main():
-        spy_df = yf.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=False)
+def main():
+    spy_df = yf.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=False)
        
-        if isinstance(spy_df.columns, pd.MultiIndex): 
+    if isinstance(spy_df.columns, pd.MultiIndex): 
             spy_df.columns = spy_df.columns.get_level_values(0)
     
         # Clean SPY reference series
