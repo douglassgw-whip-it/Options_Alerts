@@ -135,9 +135,29 @@ def main():
             continue
             
         curr_p = float(close.iloc[-1])
+
         if np.isnan(curr_p) or curr_p <= 0:
             continue
+        
+        ticker_obj = yf.Ticker(ticker)
 
+        if not ticker_obj.options:
+            continue
+
+        nearest_exp = ticker_obj.options[0]
+        chain = ticker_obj.option_chain(nearest_exp)
+
+        calls = chain.calls
+
+        if calls.empty:
+           continue
+
+        atm_call = calls.iloc[
+            (calls["strike"] - curr_p).abs().argmin()
+        ]
+
+        actual_iv = atm_call["impliedVolatility"]
+        
         # --- CALCULATE INDICATORS ---
         delta = close.diff()
         gain = delta.clip(lower=0).rolling(14).mean()
