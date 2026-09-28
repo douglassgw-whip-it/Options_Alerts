@@ -46,7 +46,7 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Target Strike (+1 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_a:
-        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['TargetStrike']:<22} | 22} | {m['Score'\]:<11} |\n"
+        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<'\]:<9} | {m['TargetStrike'\]:<22} | {m['Score'\]:<11} |\n"
         
     output += "\n" + "---" * 20 + "\n\n"
     
@@ -54,7 +54,7 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Margin Floor (-2 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_b:
-        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | { | {m['ActualIV'\]:<9} | {m['StrikeFloor'\]:<31} | {m['Score'\]:<11} |\n"
+        output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['StrikeFloorFloor'\]:<31} | {m['Score'\]:<11} |\n"
 
     return output
 
