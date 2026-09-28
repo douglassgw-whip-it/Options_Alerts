@@ -79,7 +79,20 @@ def send_matrix_email(matrix_text):
 # ==========================================
 # 4. DATA ENGINE & CORE SIGNAL LOGIC
 # ==========================================
-def main():
+def download_universe_data(tickers):
+    print(f"Downloading data for {len(tickers)} tickers...")
+
+    return yf.download(
+        tickers=tickers,
+        period="1y",
+        interval="1d",
+        group_by="ticker",
+        auto_adjust=False,
+        threads=True,
+        progress=False
+    )
+    
+    def main():
     spy_df = yf.download("SPY", period="1y", interval="1d", progress=False, auto_adjust=False)
     if isinstance(spy_df.columns, pd.MultiIndex): 
         spy_df.columns = spy_df.columns.get_level_values(0)
@@ -91,17 +104,19 @@ def main():
     spy_20d_ret = (spy_close.iloc[-1] / spy_close.iloc[-21]) - 1
 
     watchlist = fetch_options_universe()
+
+    universe_data = download_universe_data(watchlist)
+
     group_a_pool, group_b_pool, group_c_pool = [], [], []
 
-    for ticker in watchlist:
+    for ticker in watchlist::
+        
         if ticker == "SPY": 
             continue
         try:
-            df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=False)
-            if df.empty or len(df) < 60: 
-                continue
-            if isinstance(df.columns, pd.MultiIndex): 
-                df.columns = df.columns.get_level_values(0)
+            df = universe_data[ticker].copy()
+        except Exception:
+            continue
             
             # --- ROBUST PRICE & ATR CLEANUP PATCH ---
             df['Price_Clean'] = df['Close'].fillna(df['Adj Close']).ffill()
@@ -190,7 +205,8 @@ def main():
                     "Score": f"{score_b} / 3", 
                     "RawIVRank": iv_rank_proxy
                 }))
-        except Exception:
+        except Exception as e:
+            print(f"{ticker} failed: {e}")
             continue
 
     group_a_pool.sort(key=lambda x: x[1]["Alpha"], reverse=True)
