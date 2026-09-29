@@ -34,14 +34,6 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output = "## OPTIMIZED 30-45D OPTIONS SCORING MATRIX\n"
     output += "=======================================================================\n\n"
     
-    output += "### 🚀 GROUP C: BREAKOUT SIGNALS (Volume/Momentum/Compression)\n"
-    output += "| Ticker | Price | RSI | Vol Relative | Strength vs SPY |\n"
-    output += "| :--- | :--- | :--- | :--- | :--- |\n"
-    for t, m in group_c:
-        output += f"| {t:<6} | {m['Price']:<9} | {m['RSI']:<5} | {m['VolumeRel']:<12} | {m['RelStrength']:<15} |\n"
-    
-    output += "\n" + "---" * 20 + "\n\n"
-    
     output += "### 📈 GROUP A: DELTA MOMENTUM BREAKOUTS\n"
     output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Target Strike (+1 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
@@ -55,7 +47,15 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_b:
         output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['StrikeFloor']:<31} | {m['Score']:<11} |\n"
-
+    
+    output += "### 🚀 GROUP C: BREAKOUT SIGNALS (Volume/Momentum/Compression)\n"
+    output += "| Ticker | Price | RSI | Vol Relative | Strength vs SPY |\n"
+    output += "| :--- | :--- | :--- | :--- | :--- |\n"
+    for t, m in group_c:
+        output += f"| {t:<6} | {m['Price']:<9} | {m['RSI']:<5} | {m['VolumeRel']:<12} | {m['RelStrength']:<15} |\n"
+    
+    output += "\n" + "---" * 20 + "\n\n"
+    
     return output
 
 # ==========================================
@@ -248,8 +248,26 @@ def main():
                 "ActualIV": f"{actual_iv * 100:.1f}%",
             }))
 
-    group_a_pool.sort(key=lambda x: x[1]["Alpha"], reverse=True)
-    group_b_pool.sort(key=lambda x: x[1]["RawIVRank"], reverse=True)
+    group_a_pool.sort(
+        key=lambda x: (
+            int(x[1]["Score"].split("/")[0].strip()),
+            x[1]["Alpha"]
+        ),
+        reverse=True
+    )
+    
+    group_b_pool.sort(
+        key=lambda x: (
+            int(x[1]["Score"].split("/")[0].strip()),
+            -x[1]["RSI"]
+        ),
+        reverse=True
+    )
+
+    group_c_pool.sort(
+        key=lambda x: float(x[1]["RelStrength"].replace("%", "")),
+        reverse=True
+    )
     
     matrix_output = build_markdown_matrix(group_a_pool[:15], group_b_pool[:15], group_c_pool)
     print(matrix_output)
