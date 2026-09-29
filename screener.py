@@ -160,6 +160,8 @@ def main():
             continue
 
         actual_iv = atm_call["impliedVolatility"]
+        if actual_iv < 0.10 or actual_iv > 3.00:
+            continue
         
         # --- CALCULATE INDICATORS ---
         delta = close.diff()
