@@ -187,7 +187,7 @@ def main():
         is_tight = bandwidth.iloc[-1] < bandwidth.rolling(20).mean().iloc[-1]
         rel_strength = (curr_p / close.iloc[-21]) - 1
 
-        if curr_p > high_20d and vol.iloc[-1] >= (1.5 * vol_avg_20) and 50 <= curr_rsi <= 72 and curr_p > sma_50 and rel_strength > spy_20d_ret: 
+        if curr_p > high_20d and vol.iloc[-1] >= (1.2 * vol_avg_20) and 50 <= curr_rsi <= 72 and curr_p > sma_50 and rel_strength > spy_20d_ret: 
             group_c_pool.append((ticker, {
                 "Price": f"${curr_p:,.2f}", 
                 "RSI": int(curr_rsi), 
