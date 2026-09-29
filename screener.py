@@ -35,7 +35,7 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output += "=======================================================================\n\n"
     
     output += "### 📈 GROUP A: DELTA MOMENTUM BREAKOUTS\n"
-    output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Target Strike (+1 ATR) | Score |\n"
+    output += "| Ticker | Price | Ann Alpha | Daily RSI | Actual IV | Exp Move | Target Strike (+1 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_a:
         output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['TargetStrike']:<22} | {m['Score']:<11} |\n"
@@ -43,19 +43,19 @@ def build_markdown_matrix(group_a, group_b, group_c):
     output += "\n" + "---" * 20 + "\n\n"
     
     output += "### 💵 GROUP B: STRUCTURAL PULLBACKS\n"
-    output += "| Ticker | Price | Ann Alpha | Daily RSI | 30D IV Rank | Actual IV | Margin Floor (-2 ATR) | Score |\n"
+    output += "| Ticker | Price | Ann Alpha | Daily RSI | Actual IV | Exp Move | Margin Floor (-2 ATR) | Score |\n"
     output += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_b:
         output += f"| {t:<6} | {m['Price']:<9} | {m['Alpha']:+9.1%} | {m['RSI']:<9} | {m['IVRank']:<10} | {m['ActualIV']:<9} | {m['StrikeFloor']:<31} | {m['Score']:<11} |\n"
-    
+
+    output += "\n" + "---" * 20 + "\n\n"
+
     output += "### 🚀 GROUP C: BREAKOUT SIGNALS (Volume/Momentum/Compression)\n"
     output += "| Ticker | Price | RSI | Vol Relative | Strength vs SPY |\n"
     output += "| :--- | :--- | :--- | :--- | :--- |\n"
     for t, m in group_c:
         output += f"| {t:<6} | {m['Price']:<9} | {m['RSI']:<5} | {m['VolumeRel']:<12} | {m['RelStrength']:<15} |\n"
-    
-    output += "\n" + "---" * 20 + "\n\n"
-    
+      
     return output
 
 # ==========================================
@@ -165,6 +165,8 @@ def main():
         actual_iv = atm_call["impliedVolatility"]
         if actual_iv < 0.10 or actual_iv > 3.00:
             continue
+
+        expected_move = curr_p * actual_iv * np.sqrt(30 / 365)
         
         # --- CALCULATE INDICATORS ---
         delta = close.diff()
@@ -225,6 +227,7 @@ def main():
                 "RSI": int(curr_rsi),
                 "IVRank": f"{iv_rank_proxy * 100:.0f}%",
                 "ActualIV": f"{actual_iv * 100:.1f}%",
+                "ExpectedMove": f"${expected_move:,.2f}",
                 "TargetStrike": f"${curr_p + atr_14:,.2f}",
                 "Score": f"{score_a} / 3",
                 "RawIVRank": iv_rank_proxy,
@@ -246,6 +249,7 @@ def main():
                 "Score": f"{score_b} / 3", 
                 "RawIVRank": iv_rank_proxy,
                 "ActualIV": f"{actual_iv * 100:.1f}%",
+                "ExpectedMove": f"${expected_move:,.2f}",
             }))
 
     group_a_pool.sort(
