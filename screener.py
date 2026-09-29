@@ -206,7 +206,11 @@ def main():
         iv_rank_proxy = (rolling_std * np.sqrt(252) < (rolling_std.iloc[-1] * np.sqrt(252))).sum() / len(rolling_std)
 
         if curr_rsi >= 50:
-            score_a = (1 if 55 < curr_rsi < 70 else 0) + (1 if alpha > 0.05 else 0) + (1 if iv_rank_proxy < 0.45 else 0)
+            score_a = (
+                (1 if 55 < curr_rsi < 70 else 0)
+                + (1 if alpha > 0.05 else 0)
+                + (1 if actual_iv < 0.60 else 0)
+            )
             group_a_pool.append((ticker, {
                 "Price": f"${curr_p:,.2f}",
                 "Alpha": alpha,
@@ -219,7 +223,12 @@ def main():
             }))
             
         else:
-            score_b = (1 if curr_rsi < 38 else 0) + (1 if iv_rank_proxy > 0.65 else 0) + (1 if alpha > -0.15 else 0)
+            score_b = (
+                (1 if curr_rsi < 38 else 0)
+                + (1 if actual_iv > 0.50 else 0)
+                + (1 if alpha > -0.15 else 0)
+            )
+
             group_b_pool.append((ticker, {
                 "Price": f"${curr_p:,.2f}", 
                 "Alpha": alpha, 
