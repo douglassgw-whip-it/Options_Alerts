@@ -156,12 +156,8 @@ def main():
             (calls["strike"] - curr_p).abs().argmin()
         ]
 
-if atm_call["openInterest"] < 500:
-    continue
-
-        atm_call = calls.iloc[
-            (calls["strike"] - curr_p).abs().argmin()
-        ]
+        if atm_call["openInterest"] < 500:
+            continue
 
         actual_iv = atm_call["impliedVolatility"]
         
